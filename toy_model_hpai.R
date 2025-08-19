@@ -7,7 +7,6 @@ library(lubridate)
 library(INLA)
 library(purrr)
 library(sf)
-library(rnaturalearth)
 library(xlsx)
 library(openxlsx)
 library(stringr)
@@ -44,7 +43,7 @@ transitions_CuPe <- c("@ -> Lambda*S -> S", "S -> mu*S -> @", "S -> beta*S*I/(S+
                  "I -> mu*I -> @", "I -> Cu*I -> C", "S -> CuPe*I*S -> C")
 
 u0 <- data.frame(S = rep(95, n), I = rep(5, n), C = rep(0, n), V = rep(0, n))
-model_CuPe <- mparse(transitions = transitions, compartments = compartments,
+model_CuPe <- mparse(transitions = transitions_CuPe, compartments = compartments,
                 gdata = c(mu = 0.05, p = 0.2, Lambda = 0.05, beta = 0.8, phi = 0.5, 
                           Cu = 0.5, CuPe=0.3), 
                 u0 = u0, tspan = 1:50)
@@ -52,6 +51,28 @@ model_CuPe <- mparse(transitions = transitions, compartments = compartments,
 
 result <- run(model = model)
 plot(result)
+
+#model 3, dens dep transmission
+compartments2 <- c("S", "I", "Icum", "C", "Cpe", "V", "Vcum")
+
+transitions_densdep <- c("@ -> Lambda*S -> S", "S -> mu*S -> @", "S -> beta*S*I -> I + Icum", 
+                      "S -> p*S -> V + Vcum", "V -> mu*V -> @", "V -> (1 - phi)*beta*V*I -> I + Icum",
+                      "I -> mu*I -> @", "I -> Cu*I -> C", "S -> CuPe*I*S -> Cpe")
+
+u0 <- data.frame(S = rep(99, n), I = rep(1, n), Icum=rep(0,n), C = rep(0, n), Cpe = rep(0, n), V = rep(0, n), Vcum = rep(0, n))
+model_densdep <- mparse(transitions = transitions_densdep, compartments = compartments2,
+                     gdata = c(mu = 0.05, p = 0.1, Lambda = 0.05, beta = 0.02, phi = 0.5, 
+                               Cu = 0.2, CuPe=0.1), 
+                     u0 = u0, tspan = 1:50)
+
+
+result <- run(model = model_densdep)
+plot(result)
+
+traj <- trajectory(model = result, compartments = c("Icum", "Vcum", "C", "Cpe")) %>% 
+  group_by(time) %>% 
+  summarise(Icum_avg=mean(Icum), Vcum_avg=mean(Vcum), C_avg=mean(C), Cpe_avg=mean(Cpe))
+
 
 #function to minimize
 cost_function <- function(x) {
@@ -136,6 +157,7 @@ result_gensa <- GenSA(
 best_params <- result_gensa$par
 
 # nloptr: gradient ?
+
 result_nloptr <- nloptr(
   x0 = c(0.2, 0.2),
   eval_f = cost_function,
@@ -257,24 +279,23 @@ cost_function3 <- function(x, vacc_cost, cull_cost) {
   pe_cull_prop <- x[2]
   vacc_coverage <- x[3]
   
-  u0 <- data.frame(S = rep(95, n), I = rep(5, n), C = rep(0, n), V = rep(0, n))
+  u0 <- data.frame(S = rep(99, n), I = rep(1, n), Icum=rep(0,n), C = rep(0, n), Cpe = rep(0, n), V = rep(0, n), Vcum = rep(0, n))
+  model_densdep <- mparse(transitions = transitions_densdep, compartments = compartments2,
+                          gdata = c(mu = 0.05, p = vacc_coverage, Lambda = 0.05, beta = 0.02, phi = 0.5, 
+                                    Cu = cull_prop, CuPe=pe_cull_prop), 
+                          u0 = u0, tspan = 1:50)
   
-  model <- mparse(transitions = transitions, compartments = compartments,
-                       gdata = c(mu = 0.05, p = vacc_coverage, Lambda = 0.05, beta = 0.8, phi = 0.5, 
-                                 Cu = cull_prop, CuPe=pe_cull_prop), 
-                       u0 = u0, tspan = 1:150)
   
-  result <- run(model = model)
-  
+  result <- run(model = model_densdep)
   
   # Compute total infected over time
-  id_I<-seq(2,dim(result@U)[1],4)
-  tot_infected <- rowSums(result@U[id_I,])
-  avg_tot_infected <- mean(tot_infected)
-  
+  traj <- trajectory(model = result, compartments = c("Icum", "Vcum", "C", "Cpe")) %>% 
+    group_by(time) %>% 
+    summarise(Icum_avg=mean(Icum), Vcum_avg=mean(Vcum), C_avg=mean(C), Cpe_avg=mean(Cpe))
+
   cost_inf <- 12
   
-  obj<-vacc_cost*vacc_coverage*u0$S[1] + cull_cost*cull_prop*u0$S[1] + cost_inf*avg_tot_infected
+  obj<-vacc_cost*tail(traj$Vcum_avg, n=1) + cull_cost*pe_cull_prop*tail(traj$Cpe_avg, n=1) + cost_inf*tail(traj$Icum_avg, n=1)
   
   return(obj)  
 }
@@ -311,10 +332,14 @@ optimize_wrapper <- function(vacc_cost, cull_cost) {
   )
 }
 
-
+start.time <- Sys.time()
 results <- param_grid %>%
   pmap_dfr(optimize_wrapper) %>%
   mutate(ratio=cull_prop/vacc_coverage)
+end.time <- Sys.time()
+
+time.taken <- end.time - start.time
+time.taken
 
 ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = vacc_coverage)) +
   geom_tile() +
