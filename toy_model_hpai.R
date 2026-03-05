@@ -155,19 +155,18 @@ optimize_wrapper <- function(vacc_cost, cull_cost) {
 
 
 results <- param_grid %>%
-  pmap_dfr(optimize_wrapper) %>%
-  mutate(ratio=cull_prop/vacc_coverage)
+  pmap_dfr(optimize_wrapper) 
 
 g1 <- ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = vacc_coverage)) +
   geom_tile() +
   scale_fill_viridis_c() +
-  labs(title = "Vaccination to Culling Ratio", x = "Vaccination Cost", y = "Culling Cost") +
+  labs(title = "Vaccination coverage", x = "Vaccination Cost", y = "Culling Cost") +
   theme_minimal()
 
 g2 <- ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = cull_prop)) +
   geom_tile() +
   scale_fill_viridis_c() +
-  labs(title = "Vaccination to Culling Ratio", x = "Vaccination Cost", y = "Culling Cost") +
+  labs(title = "Preventive culling", x = "Vaccination Cost", y = "Culling Cost") +
   theme_minimal()
 
 ggarrange(g1, g2)
