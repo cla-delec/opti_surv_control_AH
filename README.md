@@ -7,6 +7,7 @@ This analysis uses a toy model of HPAI transmission to optimise control interven
 It includes two control strategies:
  * Vaccination of susceptible individuals
  * Preventive culling, implemented at random
+
 The aim is to optimise the decision variables related to these two interventions, vaccination coverage and proportion of preventive culling.
 
 ## Objective function
@@ -16,4 +17,5 @@ We test two objective functions to minimise:
 
 ## Optimization
 We use the package `nloptr` to optimise the control of HPAI. It takes as input the simulation model, the objective function calculated using the result of the simulation for given values of the decision variables and the constraints on the decision variables. It returns the optimal values of the decision variables. 
+
 
