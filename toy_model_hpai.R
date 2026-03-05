@@ -10,7 +10,6 @@ library(sf)
 library(xlsx)
 library(openxlsx)
 library(stringr)
-library(vegan)
 library(readxl)
 library(reshape2)
 library(patchwork)
@@ -69,10 +68,11 @@ model_densdep <- mparse(transitions = transitions_densdep, compartments = compar
 result <- run(model = model_densdep)
 plot(result)
 
-traj <- trajectory(model = result, compartments = c("Icum", "Vcum", "C", "Cpe")) %>% 
+traj <- trajectory(model = result, compartments = c("Icum", "Vcum", "C", "Cpe", "I")) %>% 
   group_by(time) %>% 
-  summarise(Icum_avg=mean(Icum), Vcum_avg=mean(Vcum), C_avg=mean(C), Cpe_avg=mean(Cpe))
+  summarise(Icum_avg=mean(Icum), I_avg=mean(I), Vcum_avg=mean(Vcum), C_avg=mean(C), Cpe_avg=mean(Cpe))
 
+ggplot(traj, aes(x=time, y=I_avg)) + geom_point()
 
 #function to minimize
 cost_function <- function(x) {
@@ -293,16 +293,40 @@ cost_function3 <- function(x, vacc_cost, cull_cost) {
     group_by(time) %>% 
     summarise(Icum_avg=mean(Icum), Vcum_avg=mean(Vcum), C_avg=mean(C), Cpe_avg=mean(Cpe))
 
-  cost_inf <- 12
+  cost_inf <- 15
   
   obj<-vacc_cost*tail(traj$Vcum_avg, n=1) + cull_cost*pe_cull_prop*tail(traj$Cpe_avg, n=1) + cost_inf*tail(traj$Icum_avg, n=1)
   
   return(obj)  
 }
 
+cost_function_ninf <- function(x, vacc_cost, cull_cost) {
+  cull_prop <- x[1]
+  pe_cull_prop <- x[2]
+  vacc_coverage <- x[3]
+  
+  u0 <- data.frame(S = rep(99, n), I = rep(1, n), Icum=rep(0,n), C = rep(0, n), Cpe = rep(0, n), V = rep(0, n), Vcum = rep(0, n))
+  model_densdep <- mparse(transitions = transitions_densdep, compartments = compartments2,
+                          gdata = c(mu = 0.05, p = vacc_coverage, Lambda = 0.05, beta = 0.02, phi = 0.5, 
+                                    Cu = cull_prop, CuPe=pe_cull_prop), 
+                          u0 = u0, tspan = 1:50)
+  
+  
+  result <- run(model = model_densdep)
+  
+  # Compute total infected over time
+  traj <- trajectory(model = result, compartments = c("Icum", "Vcum", "C", "Cpe")) %>% 
+    group_by(time) %>% 
+    summarise(Icum_avg=mean(Icum), Vcum_avg=mean(Vcum), C_avg=mean(C), Cpe_avg=mean(Cpe))
+  
+  obj<-tail(traj$Icum_avg, n=1)
+  
+  return(obj)  
+}
+
 #tested costs
-vacc_costs <- seq(1, 10, by = 1)
-cull_costs <- seq(1, 10, by = 1)
+vacc_costs <- seq(0, 5, length.out=10)
+cull_costs <- seq(10, 30, length.out=10)
 param_grid <- expand.grid(vacc_cost = vacc_costs, cull_cost = cull_costs)
 
 #wrapper function
@@ -346,21 +370,21 @@ ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = vacc_coverage)) +
   scale_fill_viridis_c() +
   labs(title = "Vaccination coverage", x = "Vaccination Cost", y = "Culling Cost") +
   theme_minimal()
-ggsave("./Figures/diff_costs_resultvacc_v2wPEcull.png", bg="white")
+ggsave("./Figures/diff_costs_resultvacc_v6wPEcull.png", bg="white")
 
 ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = pe_cull_prop)) +
   geom_tile() +
   scale_fill_viridis_c() +
   labs(title = "Preventive culling rate", x = "Vaccination Cost", y = "Culling Cost") +
   theme_minimal()
-ggsave("./Figures/diff_costs_resultpecull_v2wPEcull.png", bg="white")
+ggsave("./Figures/diff_costs_resultpecull_v6wPEcull.png", bg="white")
 
 ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = cull_prop)) +
   geom_tile() +
   scale_fill_viridis_c() +
   labs(title = "Reactive culling rate", x = "Vaccination Cost", y = "Culling Cost") +
   theme_minimal()
-ggsave("./Figures/diff_costs_resultcull_v2wPEcull.png", bg="white")
+ggsave("./Figures/diff_costs_resultcull_v6wPEcull.png", bg="white")
 
 # ggplot(results, aes(x = vacc_cost, y = cull_cost, fill = ratio)) +
 #   geom_tile() +
